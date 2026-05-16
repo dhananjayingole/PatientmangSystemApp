@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "237921587561",
+    "firebase_url": "https://myloginpage-9b80e-default-rtdb.firebaseio.com",
+    "project_id": "myloginpage-9b80e",
+    "storage_bucket": "myloginpage-9b80e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:237921587561:android:231063496808b372bc6df8",
+        "android_client_info": {
+          "package_name": "eu.tutorials.patientmanagementapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "237921587561-67anqjf0vjvlag6go4lh85rkcan10i38.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAJghHgIKpMl9IfBn1zLHaEFkKGAJefXLI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "237921587561-67anqjf0vjvlag6go4lh85rkcan10i38.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
