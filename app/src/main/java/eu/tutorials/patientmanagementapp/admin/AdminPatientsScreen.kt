@@ -17,8 +17,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import eu.tutorials.patientmanagementapp.Model.Patient
+import eu.tutorials.patientmanagementapp.Navigation.Routes
 import eu.tutorials.patientmanagementapp.viewmodels.AdminViewModel
-import kotlin.collections.filter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,7 +38,9 @@ fun AdminPatientsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Manage Patients", fontSize = 20.sp, fontWeight = FontWeight.Bold) },
+                title = {
+                    Text("Manage Patients", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -50,6 +52,15 @@ fun AdminPatientsScreen(
                     navigationIconContentColor = Color.White
                 )
             )
+        },
+        // FIX: FAB was missing — admin had no way to add a new patient from this screen
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { navController.navigate(Routes.adminAddEditPatient("new")) },
+                containerColor = Color(0xFF1976D2)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add Patient", tint = Color.White)
+            }
         }
     ) { paddingValues ->
         Column(
@@ -57,7 +68,6 @@ fun AdminPatientsScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Search Bar
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -71,37 +81,37 @@ fun AdminPatientsScreen(
             )
 
             if (isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             } else if (filteredPatients.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            imageVector = Icons.Default.Folder,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = Color.Gray
+                            Icons.Default.Folder, null,
+                            Modifier.size(64.dp), tint = Color.Gray
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(Modifier.height(16.dp))
                         Text("No patients found", color = Color.Gray)
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = { navController.navigate(Routes.adminAddEditPatient("new")) },
+                            colors = ButtonDefaults.buttonColors(Color(0xFF1976D2))
+                        ) {
+                            Text("Add First Patient")
+                        }
                     }
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filteredPatients) { patient ->
                         PatientAdminCard(
                             patient = patient,
+                            navController = navController,  // FIX: pass navController for Edit
                             onClick = {
                                 selectedPatient = patient
                                 showDetailsDialog = true
@@ -118,7 +128,7 @@ fun AdminPatientsScreen(
     if (showDetailsDialog && selectedPatient != null) {
         AlertDialog(
             onDismissRequest = { showDetailsDialog = false },
-            title = { Text(selectedPatient!!.name) },
+            title = { Text(selectedPatient!!.name, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
                     DetailRow("Age", "${selectedPatient!!.age} years")
@@ -128,11 +138,23 @@ fun AdminPatientsScreen(
                     DetailRow("Emergency Contact", selectedPatient!!.emergencyContact)
                     DetailRow("Doctor", selectedPatient!!.assignedDoctor)
                     DetailRow("Medical History", selectedPatient!!.medicalHistory.take(100))
+                    DetailRow(
+                        "Account Linked",
+                        if (selectedPatient!!.userId.isNotEmpty()) "✅ Yes" else "❌ No (set User ID)"
+                    )
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showDetailsDialog = false }) {
-                    Text("Close")
+                Row {
+                    TextButton(onClick = {
+                        showDetailsDialog = false
+                        navController.navigate(Routes.adminAddEditPatient(selectedPatient!!.id))
+                    }) {
+                        Text("Edit")
+                    }
+                    TextButton(onClick = { showDetailsDialog = false }) {
+                        Text("Close")
+                    }
                 }
             }
         )
@@ -147,13 +169,13 @@ fun DetailRow(label: String, value: String) {
             .padding(vertical = 4.dp)
     ) {
         Text(
-            text = "$label: ",
+            "$label: ",
             fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
-            modifier = Modifier.width(120.dp)
+            modifier = Modifier.width(130.dp)
         )
         Text(
-            text = value.ifEmpty { "Not specified" },
+            value.ifEmpty { "Not specified" },
             fontSize = 14.sp,
             color = Color.Gray
         )
@@ -163,6 +185,7 @@ fun DetailRow(label: String, value: String) {
 @Composable
 fun PatientAdminCard(
     patient: Patient,
+    navController: NavController,      // FIX: added so Edit can navigate
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -176,38 +199,43 @@ fun PatientAdminCard(
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(Modifier.weight(1f)) {
+                Text(patient.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(
-                    text = patient.name,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    "${patient.age}y • ${patient.gender} • ${patient.bloodGroup}",
+                    fontSize = 12.sp, color = Color.Gray
                 )
                 Text(
-                    text = "${patient.age} years • ${patient.gender} • ${patient.bloodGroup}",
-                    fontSize = 12.sp,
-                    color = Color.Gray
+                    "Doctor: ${patient.assignedDoctor.ifEmpty { "Not assigned" }}",
+                    fontSize = 12.sp, color = Color(0xFF1976D2)
                 )
-                Text(
-                    text = "Doctor: ${patient.assignedDoctor}",
-                    fontSize = 12.sp,
-                    color = Color(0xFF1976D2)
-                )
+                // FIX: Show warning if userId is not set (prescriptions won't show for them)
+                if (patient.userId.isEmpty()) {
+                    Text(
+                        "⚠ No user account linked",
+                        fontSize = 11.sp,
+                        color = Color(0xFFE65100)
+                    )
+                }
             }
 
-            IconButton(
-                onClick = { showDeleteDialog = true },
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    tint = Color.Red
-                )
+            // FIX: replaced single Delete icon with Edit + Delete column
+            Column {
+                IconButton(
+                    onClick = { navController.navigate(Routes.adminAddEditPatient(patient.id)) },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Default.Edit, "Edit", tint = Color(0xFF1976D2))
+                }
+                IconButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Default.Delete, "Delete", tint = Color.Red)
+                }
             }
         }
     }
@@ -218,19 +246,12 @@ fun PatientAdminCard(
             title = { Text("Delete Patient") },
             text = { Text("Are you sure you want to delete ${patient.name}'s record?") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDelete()
-                        showDeleteDialog = false
-                    }
-                ) {
+                TextButton(onClick = { onDelete(); showDeleteDialog = false }) {
                     Text("Delete", color = Color.Red)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
             }
         )
     }
