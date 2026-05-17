@@ -13,6 +13,8 @@ class UserViewModel : ViewModel() {
 
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseDatabase.getInstance().reference
+
+    // FIX: Use a property that always returns current UID (not captured at init time)
     private val uid get() = auth.currentUser?.uid ?: ""
 
     private val _isLoading = MutableStateFlow(false)
@@ -28,6 +30,10 @@ class UserViewModel : ViewModel() {
     private val _upcomingAppointments = MutableStateFlow<List<Appointment>>(emptyList())
     val upcomingAppointments: StateFlow<List<Appointment>> = _upcomingAppointments
 
+    // FIX: Added allAppointments for the new MyAppointmentsScreen (shows history too)
+    private val _allAppointments = MutableStateFlow<List<Appointment>>(emptyList())
+    val allAppointments: StateFlow<List<Appointment>> = _allAppointments
+
     private val _notifications = MutableStateFlow<List<Notification>>(emptyList())
     val notifications: StateFlow<List<Notification>> = _notifications
 
@@ -40,29 +46,54 @@ class UserViewModel : ViewModel() {
 
     private val listeners = mutableListOf<Pair<Query, ValueEventListener>>()
 
+    // FIX: Use addAuthStateListener instead of checking uid at init time.
+    // Previous code captured uid at construction, which was empty on cold start
+    // (Firebase Auth hadn't finished initialising). Now we wait for the auth state.
     init {
-        if (uid.isNotEmpty()) {
-            fetchUserData()
-            listenPrescriptions()
-            listenAppointments()
-            listenNotifications()
-        }
-    }
-
-    fun fetchUserData() {
-        viewModelScope.launch {
-            try {
-                val snap = db.child("users").child(uid).get().await()
-                _userData.value = snap.getValue(User::class.java)
-            } catch (e: Exception) {
-                // ignore
+        auth.addAuthStateListener { firebaseAuth ->
+            val currentUid = firebaseAuth.currentUser?.uid ?: ""
+            if (currentUid.isNotEmpty()) {
+                // Remove old listeners before re-attaching (handles sign-out / sign-in cycles)
+                clearListeners()
+                fetchUserData()
+                listenPrescriptions()
+                listenAppointments()
+                listenNotifications()
+            } else {
+                clearListeners()
+                _userData.value = null
+                _prescriptions.value = emptyList()
+                _upcomingAppointments.value = emptyList()
+                _allAppointments.value = emptyList()
+                _notifications.value = emptyList()
             }
         }
     }
 
+    fun fetchUserData() {
+        val currentUid = uid
+        if (currentUid.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val snap = db.child("users").child(currentUid).get().await()
+                _userData.value = snap.getValue(User::class.java)
+            } catch (e: Exception) {
+                // ignore — UI shows cached state
+            }
+        }
+    }
+
+    // FIX: The root cause of "prescriptions never show":
+    // Old code queried:  orderByChild("patientId").equalTo(uid)
+    // But patientId stores the Patient document ID (a Firebase push key like "-NxAbc123"),
+    // NOT the user's Firebase Auth UID.
+    // New code queries:  orderByChild("userId").equalTo(uid)
+    // This works because AdminViewModel.savePrescription() now stores userId = patient.userId
+    // (the Firebase Auth UID) on every prescription document.
     private fun listenPrescriptions() {
-        if (uid.isEmpty()) return
-        val ref = db.child("prescriptions").orderByChild("patientId").equalTo(uid)
+        val currentUid = uid
+        if (currentUid.isEmpty()) return
+        val ref = db.child("prescriptions").orderByChild("userId").equalTo(currentUid)
         val listener = object : ValueEventListener {
             override fun onDataChange(snap: DataSnapshot) {
                 _prescriptions.value = snap.children
@@ -76,12 +107,20 @@ class UserViewModel : ViewModel() {
     }
 
     private fun listenAppointments() {
-        if (uid.isEmpty()) return
-        val ref = db.child("appointments").orderByChild("userId").equalTo(uid)
+        val currentUid = uid
+        if (currentUid.isEmpty()) return
+        val ref = db.child("appointments").orderByChild("userId").equalTo(currentUid)
         val listener = object : ValueEventListener {
             override fun onDataChange(snap: DataSnapshot) {
-                _upcomingAppointments.value = snap.children
+                val all = snap.children
                     .mapNotNull { it.getValue(Appointment::class.java) }
+                    .sortedByDescending { it.createdAt }
+
+                // allAppointments: full history including past/cancelled
+                _allAppointments.value = all
+
+                // upcomingAppointments: only active ones for dashboard display
+                _upcomingAppointments.value = all
                     .filter { it.status == "pending" || it.status == "confirmed" }
                     .sortedBy { "${it.date} ${it.time}" }
             }
@@ -92,8 +131,9 @@ class UserViewModel : ViewModel() {
     }
 
     private fun listenNotifications() {
-        if (uid.isEmpty()) return
-        val ref = db.child("notifications").orderByChild("userId").equalTo(uid)
+        val currentUid = uid
+        if (currentUid.isEmpty()) return
+        val ref = db.child("notifications").orderByChild("userId").equalTo(currentUid)
         val listener = object : ValueEventListener {
             override fun onDataChange(snap: DataSnapshot) {
                 _notifications.value = snap.children
@@ -107,11 +147,13 @@ class UserViewModel : ViewModel() {
     }
 
     fun updateProfile(name: String, phone: String) {
+        val currentUid = uid
+        if (currentUid.isEmpty()) return
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                db.child("users").child(uid).child("name").setValue(name).await()
-                db.child("users").child(uid).child("phoneNumber").setValue(phone).await()
+                db.child("users").child(currentUid).child("name").setValue(name).await()
+                db.child("users").child(currentUid).child("phoneNumber").setValue(phone).await()
                 fetchUserData()
                 _toastMessage.value = "Profile updated!"
             } catch (e: Exception) {
@@ -130,13 +172,15 @@ class UserViewModel : ViewModel() {
         time: String,
         reason: String
     ) {
+        val currentUid = uid
+        if (currentUid.isEmpty()) return
         viewModelScope.launch {
             _isLoading.value = true
             try {
                 val apptId = db.child("appointments").push().key ?: return@launch
                 val appt = Appointment(
                     id = apptId,
-                    userId = uid,
+                    userId = currentUid,
                     userName = userName,
                     doctorName = doctorName,
                     doctorSpecialty = specialty,
@@ -146,18 +190,17 @@ class UserViewModel : ViewModel() {
                 )
                 db.child("appointments").child(apptId).setValue(appt).await()
 
-                // Self notification
                 try {
                     pushNotification(
-                        userId = uid,
+                        userId = currentUid,
                         title = "Appointment Requested",
                         message = "Your appointment with $doctorName on $date at $time has been submitted. Awaiting confirmation.",
                         type = "appointment"
                     )
-                } catch(e: Exception){
-//                    log but don't fail the booking.
+                } catch (e: Exception) {
+                    // Notification failure should not fail the booking
                 }
-                _toastMessage.value = "Appointment booked!"
+                _toastMessage.value = "Appointment booked successfully!"
             } catch (e: Exception) {
                 _toastMessage.value = "Error: ${e.message}"
             } finally {
@@ -189,8 +232,6 @@ class UserViewModel : ViewModel() {
                     timestamp = System.currentTimeMillis()
                 )
                 db.child("emergency_alerts").child(alertId).setValue(alert).await()
-
-                // Confirm to user
                 pushNotification(
                     userId = userId,
                     title = "Emergency Alert Sent",
@@ -229,8 +270,13 @@ class UserViewModel : ViewModel() {
 
     fun clearToast() { _toastMessage.value = null }
 
+    private fun clearListeners() {
+        listeners.forEach { (query, listener) -> query.removeEventListener(listener) }
+        listeners.clear()
+    }
+
     override fun onCleared() {
         super.onCleared()
-        listeners.forEach { (query, listener) -> query.removeEventListener(listener) }
+        clearListeners()
     }
 }

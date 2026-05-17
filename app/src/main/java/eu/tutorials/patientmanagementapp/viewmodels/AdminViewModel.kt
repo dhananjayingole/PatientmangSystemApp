@@ -39,7 +39,6 @@ class AdminViewModel : ViewModel() {
     private val _toastMessage = MutableStateFlow<String?>(null)
     val toastMessage: StateFlow<String?> = _toastMessage
 
-    // Track all listeners for cleanup
     private val listeners = mutableListOf<Pair<Query, ValueEventListener>>()
 
     init {
@@ -140,7 +139,8 @@ class AdminViewModel : ViewModel() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val id = if (isNew) db.child("patients").push().key ?: return@launch else patient.id
+                val id = if (isNew) db.child("patients").push().key ?: return@launch
+                else patient.id
                 val toSave = patient.copy(id = id, updatedAt = System.currentTimeMillis())
                 db.child("patients").child(id).setValue(toSave).await()
                 _toastMessage.value = if (isNew) "Patient added successfully!" else "Patient updated!"
@@ -165,28 +165,44 @@ class AdminViewModel : ViewModel() {
 
     // ── Prescription CRUD ──
 
+    // FIX: savePrescription now looks up patient.userId and stores it as prescription.userId.
+    // This is the key fix that allows UserViewModel to query prescriptions by Firebase Auth UID.
+    // Previously prescriptions only stored patientId (a push key), which can never match
+    // the uid used in the user-side query.
     fun savePrescription(prescription: Prescription, isNew: Boolean) {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val id = if (isNew) db.child("prescriptions").push().key ?: return@launch else prescription.id
-                val toSave = prescription.copy(id = id, date = System.currentTimeMillis())
+                val id = if (isNew) db.child("prescriptions").push().key ?: return@launch
+                else prescription.id
+
+                // Look up the linked Firebase Auth UID from the patient record
+                val patient = _patients.value.find { it.id == prescription.patientId }
+                val linkedUserId = patient?.userId ?: ""
+
+                val toSave = prescription.copy(
+                    id = id,
+                    date = System.currentTimeMillis(),
+                    userId = linkedUserId   // FIX: store Auth UID so user can query their own prescriptions
+                )
                 db.child("prescriptions").child(id).setValue(toSave).await()
 
-                // Notify the linked patient user
-                val patient = _patients.value.find { it.id == prescription.patientId }
-                val userIdToNotify = patient?.userId ?: ""
-                if (userIdToNotify.isNotEmpty()) {
+                // Notify patient if their account is linked
+                if (linkedUserId.isNotEmpty()) {
                     val notifId = db.child("notifications").push().key ?: ""
-                    val notif = Notification(
-                        id = notifId,
-                        userId = userIdToNotify,
-                        title = if (isNew) "New Prescription" else "Prescription Updated",
-                        message = "Dr. ${prescription.doctorName} has ${if (isNew) "issued" else "updated"} a prescription for you. ${prescription.medicines.size} medicine(s) prescribed.",
-                        type = "prescription",
-                        timestamp = System.currentTimeMillis()
-                    )
-                    db.child("notifications").child(notifId).setValue(notif).await()
+                    if (notifId.isNotEmpty()) {
+                        val notif = Notification(
+                            id = notifId,
+                            userId = linkedUserId,
+                            title = if (isNew) "New Prescription" else "Prescription Updated",
+                            message = "Dr. ${prescription.doctorName} has " +
+                                    "${if (isNew) "issued" else "updated"} a prescription for you. " +
+                                    "${prescription.medicines.size} medicine(s) prescribed.",
+                            type = "prescription",
+                            timestamp = System.currentTimeMillis()
+                        )
+                        db.child("notifications").child(notifId).setValue(notif).await()
+                    }
                 }
                 _toastMessage.value = if (isNew) "Prescription saved!" else "Prescription updated!"
             } catch (e: Exception) {
@@ -208,7 +224,7 @@ class AdminViewModel : ViewModel() {
         }
     }
 
-    // ── User CRUD ──
+    // ── User Management ──
 
     fun deleteUser(uid: String) {
         viewModelScope.launch {
@@ -221,7 +237,7 @@ class AdminViewModel : ViewModel() {
         }
     }
 
-    // ── Emergency ──
+    // ── Emergency Alerts ──
 
     fun updateEmergencyStatus(alertId: String, status: String) {
         viewModelScope.launch {
@@ -234,24 +250,25 @@ class AdminViewModel : ViewModel() {
                 )
                 db.child("emergency_alerts").child(alertId).updateChildren(updates).await()
 
-                // Notify the patient about status update
                 val alert = _emergencyAlerts.value.find { it.id == alertId }
                 if (alert != null && alert.userId.isNotEmpty()) {
                     val notifId = db.child("notifications").push().key ?: ""
-                    val message = when (status) {
-                        "responding" -> "Help is on the way! Emergency team is responding to your SOS."
-                        "resolved" -> "Your emergency has been resolved. Stay safe."
-                        else -> "Emergency status updated to $status"
+                    if (notifId.isNotEmpty()) {
+                        val message = when (status) {
+                            "responding" -> "Help is on the way! Emergency team is responding to your SOS."
+                            "resolved"   -> "Your emergency has been resolved. Stay safe."
+                            else         -> "Emergency status updated to $status"
+                        }
+                        val notif = Notification(
+                            id = notifId,
+                            userId = alert.userId,
+                            title = "Emergency Update",
+                            message = message,
+                            type = "emergency",
+                            timestamp = System.currentTimeMillis()
+                        )
+                        db.child("notifications").child(notifId).setValue(notif).await()
                     }
-                    val notif = Notification(
-                        id = notifId,
-                        userId = alert.userId,
-                        title = "Emergency Update",
-                        message = message,
-                        type = "emergency",
-                        timestamp = System.currentTimeMillis()
-                    )
-                    db.child("notifications").child(notifId).setValue(notif).await()
                 }
                 _toastMessage.value = "Status updated to $status"
             } catch (e: Exception) {
@@ -270,25 +287,26 @@ class AdminViewModel : ViewModel() {
                     db.child("appointments").child(appointmentId).child("notes").setValue(notes).await()
                 }
 
-                // Notify patient
                 val appt = _appointments.value.find { it.id == appointmentId }
                 if (appt != null && appt.userId.isNotEmpty()) {
                     val notifId = db.child("notifications").push().key ?: ""
-                    val message = when (status) {
-                        "confirmed" -> "Your appointment with ${appt.doctorName} on ${appt.date} at ${appt.time} is confirmed.${if (notes.isNotEmpty()) " Note: $notes" else ""}"
-                        "cancelled" -> "Your appointment with ${appt.doctorName} on ${appt.date} has been cancelled."
-                        "completed" -> "Your appointment with ${appt.doctorName} is marked as completed."
-                        else -> "Appointment status updated to $status"
+                    if (notifId.isNotEmpty()) {
+                        val message = when (status) {
+                            "confirmed"  -> "Your appointment with ${appt.doctorName} on ${appt.date} at ${appt.time} is confirmed.${if (notes.isNotEmpty()) " Note: $notes" else ""}"
+                            "cancelled"  -> "Your appointment with ${appt.doctorName} on ${appt.date} has been cancelled.${if (notes.isNotEmpty()) " Reason: $notes" else ""}"
+                            "completed"  -> "Your appointment with ${appt.doctorName} is marked as completed."
+                            else         -> "Appointment status updated to $status"
+                        }
+                        val notif = Notification(
+                            id = notifId,
+                            userId = appt.userId,
+                            title = "Appointment ${status.replaceFirstChar { it.uppercase() }}",
+                            message = message,
+                            type = "appointment",
+                            timestamp = System.currentTimeMillis()
+                        )
+                        db.child("notifications").child(notifId).setValue(notif).await()
                     }
-                    val notif = Notification(
-                        id = notifId,
-                        userId = appt.userId,
-                        title = "Appointment ${status.replaceFirstChar { it.uppercase() }}",
-                        message = message,
-                        type = "appointment",
-                        timestamp = System.currentTimeMillis()
-                    )
-                    db.child("notifications").child(notifId).setValue(notif).await()
                 }
                 _toastMessage.value = "Appointment $status"
             } catch (e: Exception) {
