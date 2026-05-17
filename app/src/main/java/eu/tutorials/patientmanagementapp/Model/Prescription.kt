@@ -3,6 +3,7 @@ package eu.tutorials.patientmanagementapp.Model
 data class Prescription(
     val id: String = "",
     val patientId: String = "",
+    val userId: String = "",          // FIX: Firebase Auth UID — used for user-side queries
     val patientName: String = "",
     val doctorName: String = "",
     val date: Long = System.currentTimeMillis(),
@@ -18,5 +19,5 @@ data class Medicine(
     val dosage: String = "",
     val frequency: String = "",
     val duration: String = "",
-    val timing: String = "" // morning, afternoon, evening, night
+    val timing: String = ""  // e.g. "Before Meals", "After Meals"
 )
