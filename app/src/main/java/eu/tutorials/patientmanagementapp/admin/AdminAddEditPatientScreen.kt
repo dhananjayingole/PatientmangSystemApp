@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -19,34 +20,53 @@ import androidx.navigation.NavController
 import eu.tutorials.patientmanagementapp.Model.Patient
 import eu.tutorials.patientmanagementapp.viewmodels.AdminViewModel
 
+/**
+ * Add / Edit Patient screen.
+ *
+ * New flow:
+ *   1. User books an appointment  →  userId is saved on the Appointment.
+ *   2. Admin confirms the appointment.
+ *   3. When the patient arrives, doctor taps "Add as Patient" on the appointment card.
+ *   4. This screen opens with [prefillName] = appointment.userName
+ *                                 and [prefillUserId] = appointment.userId.
+ *   5. Doctor fills in age, blood group, etc. and saves.
+ *   6. Patient record now has userId set automatically — no manual entry needed.
+ *   7. Any prescription later saved for this patient will inherit the userId,
+ *      so it will automatically appear on the patient's "My Prescriptions" screen.
+ *
+ * The userId field is intentionally hidden from the UI to avoid confusion;
+ * it is carried silently in state.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminAddEditPatientScreen(
-    navController: NavController,
-    patientId: String,
-    // FIX: prefill parameters — used when navigating from "Add as Patient" on an appointment
-    prefillName: String = "",
-    prefillUserId: String = "",
-    adminViewModel: AdminViewModel = viewModel()
+    navController  : NavController,
+    patientId      : String,
+    prefillName    : String = "",   // pre-filled from appointment
+    prefillUserId  : String = "",   // auto-linked from appointment
+    adminViewModel : AdminViewModel
 ) {
-    val context = LocalContext.current
-    val isNew = patientId == "new"
+    val context  = LocalContext.current
+    val isNew    = patientId == "new"
     val existing = if (!isNew) adminViewModel.getPatientById(patientId) else null
 
-    // FIX: prefill values take priority over empty defaults when creating from an appointment
-    var name by remember { mutableStateOf(existing?.name ?: prefillName) }
-    var age by remember { mutableStateOf(existing?.age?.toString() ?: "") }
-    var gender by remember { mutableStateOf(existing?.gender ?: "Male") }
-    var bloodGroup by remember { mutableStateOf(existing?.bloodGroup ?: "A+") }
-    var phone by remember { mutableStateOf(existing?.phoneNumber ?: "") }
-    var address by remember { mutableStateOf(existing?.address ?: "") }
+    // Pre-fill from appointment when creating from appointment flow;
+    // fall back to existing record values when editing.
+    var name             by remember { mutableStateOf(existing?.name             ?: prefillName) }
+    var age              by remember { mutableStateOf(existing?.age?.toString()  ?: "") }
+    var gender           by remember { mutableStateOf(existing?.gender           ?: "Male") }
+    var bloodGroup       by remember { mutableStateOf(existing?.bloodGroup       ?: "A+") }
+    var phone            by remember { mutableStateOf(existing?.phoneNumber      ?: "") }
+    var address          by remember { mutableStateOf(existing?.address          ?: "") }
     var emergencyContact by remember { mutableStateOf(existing?.emergencyContact ?: "") }
-    var assignedDoctor by remember { mutableStateOf(existing?.assignedDoctor ?: "") }
-    var medicalHistory by remember { mutableStateOf(existing?.medicalHistory ?: "") }
-    var userId by remember { mutableStateOf(existing?.userId ?: prefillUserId) }
+    var assignedDoctor   by remember { mutableStateOf(existing?.assignedDoctor   ?: "") }
+    var medicalHistory   by remember { mutableStateOf(existing?.medicalHistory   ?: "") }
+
+    // userId is carried silently — not shown in the UI
+    val linkedUserId = existing?.userId?.takeIf { it.isNotEmpty() } ?: prefillUserId
 
     val isLoading by adminViewModel.isLoading.collectAsState()
-    val toast by adminViewModel.toastMessage.collectAsState()
+    val toast     by adminViewModel.toastMessage.collectAsState()
 
     LaunchedEffect(toast) {
         toast?.let {
@@ -74,12 +94,12 @@ fun AdminAddEditPatientScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(Icons.Default.ArrowBack, null)
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF1976D2),
-                    titleContentColor = Color.White,
+                    containerColor        = Color(0xFF1976D2),
+                    titleContentColor     = Color.White,
                     navigationIconContentColor = Color.White
                 )
             )
@@ -94,18 +114,46 @@ fun AdminAddEditPatientScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
+            // ── Info banner when coming from appointment flow ─────────────────
+            if (prefillUserId.isNotEmpty() || linkedUserId.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))
+                ) {
+                    Row(
+                        Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.OnlinePrediction,
+                            contentDescription = null,
+                            tint     = Color(0xFF1976D2),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Patient account linked automatically. " +
+                                    "Prescriptions will appear on their app.",
+                            fontSize = 12.sp,
+                            color    = Color(0xFF1565C0)
+                        )
+                    }
+                }
+            }
+
+            // ── Fields ───────────────────────────────────────────────────────
+
             OutlinedTextField(
                 name, { name = it },
                 Modifier.fillMaxWidth(),
-                label = { Text("Full Name *") },
+                label      = { Text("Full Name *") },
                 singleLine = true
             )
 
             OutlinedTextField(
                 age, { age = it },
                 Modifier.fillMaxWidth(),
-                label = { Text("Age *") },
-                singleLine = true,
+                label          = { Text("Age *") },
+                singleLine     = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
                 )
@@ -114,8 +162,8 @@ fun AdminAddEditPatientScreen(
             OutlinedTextField(
                 phone, { phone = it },
                 Modifier.fillMaxWidth(),
-                label = { Text("Phone Number") },
-                singleLine = true,
+                label          = { Text("Phone Number") },
+                singleLine     = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone
                 )
@@ -124,29 +172,29 @@ fun AdminAddEditPatientScreen(
             OutlinedTextField(
                 address, { address = it },
                 Modifier.fillMaxWidth(),
-                label = { Text("Address") },
+                label    = { Text("Address") },
                 minLines = 2
             )
 
             OutlinedTextField(
                 emergencyContact, { emergencyContact = it },
                 Modifier.fillMaxWidth(),
-                label = { Text("Emergency Contact") },
-                singleLine = true,
+                label          = { Text("Emergency Contact") },
+                singleLine     = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone
                 )
             )
 
-            // Gender Dropdown
+            // ── Gender dropdown ──────────────────────────────────────────────
             var genderExpanded by remember { mutableStateOf(false) }
             ExposedDropdownMenuBox(genderExpanded, { genderExpanded = it }) {
                 OutlinedTextField(
                     gender, {},
                     Modifier.fillMaxWidth().menuAnchor(),
-                    readOnly = true,
-                    label = { Text("Gender") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(genderExpanded) }
+                    readOnly      = true,
+                    label         = { Text("Gender") },
+                    trailingIcon  = { ExposedDropdownMenuDefaults.TrailingIcon(genderExpanded) }
                 )
                 ExposedDropdownMenu(genderExpanded, { genderExpanded = false }) {
                     genders.forEach { g ->
@@ -155,14 +203,14 @@ fun AdminAddEditPatientScreen(
                 }
             }
 
-            // Blood Group Dropdown
+            // ── Blood group dropdown ─────────────────────────────────────────
             var bgExpanded by remember { mutableStateOf(false) }
             ExposedDropdownMenuBox(bgExpanded, { bgExpanded = it }) {
                 OutlinedTextField(
                     bloodGroup, {},
                     Modifier.fillMaxWidth().menuAnchor(),
-                    readOnly = true,
-                    label = { Text("Blood Group") },
+                    readOnly     = true,
+                    label        = { Text("Blood Group") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(bgExpanded) }
                 )
                 ExposedDropdownMenu(bgExpanded, { bgExpanded = false }) {
@@ -172,14 +220,14 @@ fun AdminAddEditPatientScreen(
                 }
             }
 
-            // Doctor Dropdown
+            // ── Doctor dropdown ──────────────────────────────────────────────
             var doctorExpanded by remember { mutableStateOf(false) }
             ExposedDropdownMenuBox(doctorExpanded, { doctorExpanded = it }) {
                 OutlinedTextField(
                     assignedDoctor, {},
                     Modifier.fillMaxWidth().menuAnchor(),
-                    readOnly = true,
-                    label = { Text("Assigned Doctor") },
+                    readOnly     = true,
+                    label        = { Text("Assigned Doctor") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(doctorExpanded) }
                 )
                 ExposedDropdownMenu(doctorExpanded, { doctorExpanded = false }) {
@@ -192,36 +240,11 @@ fun AdminAddEditPatientScreen(
             OutlinedTextField(
                 medicalHistory, { medicalHistory = it },
                 Modifier.fillMaxWidth(),
-                label = { Text("Medical History") },
+                label    = { Text("Medical History") },
                 minLines = 3
             )
 
-            // FIX: This field links the Patient record to the User account.
-            // It MUST be the Firebase Auth UID of the patient's user account.
-            // Without this, prescriptions written for this patient will NOT appear
-            // on the user's "My Prescriptions" screen.
-            OutlinedTextField(
-                userId, { userId = it },
-                Modifier.fillMaxWidth(),
-                label = { Text("Linked User ID (Firebase Auth UID)") },
-                placeholder = { Text("e.g. abc123xyz — find in Firebase Auth console") },
-                supportingText = {
-                    Text(
-                        "Required for prescriptions to appear on user's app",
-                        fontSize = 11.sp,
-                        color = if (userId.isBlank()) Color(0xFFE65100) else Color(0xFF2E7D32)
-                    )
-                },
-                singleLine = true,
-                trailingIcon = {
-                    if (userId.isNotBlank()) {
-                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32))
-                    } else {
-                        Icon(Icons.Default.Warning, null, tint = Color(0xFFE65100))
-                    }
-                }
-            )
-
+            // ── Save button ──────────────────────────────────────────────────
             Button(
                 onClick = {
                     if (name.isBlank() || age.isBlank()) {
@@ -229,23 +252,23 @@ fun AdminAddEditPatientScreen(
                         return@Button
                     }
                     val patient = Patient(
-                        id = if (!isNew) patientId else "",
-                        name = name,
-                        age = age.toIntOrNull() ?: 0,
-                        gender = gender,
-                        bloodGroup = bloodGroup,
-                        phoneNumber = phone,
-                        address = address,
-                        emergencyContact = emergencyContact,
-                        assignedDoctor = assignedDoctor,
-                        medicalHistory = medicalHistory,
-                        userId = userId.trim()
+                        id               = if (!isNew) patientId else "",
+                        name             = name.trim(),
+                        age              = age.toIntOrNull() ?: 0,
+                        gender           = gender,
+                        bloodGroup       = bloodGroup,
+                        phoneNumber      = phone.trim(),
+                        address          = address.trim(),
+                        emergencyContact = emergencyContact.trim(),
+                        assignedDoctor   = assignedDoctor,
+                        medicalHistory   = medicalHistory.trim(),
+                        userId           = linkedUserId   // auto-linked, not entered manually
                     )
                     adminViewModel.savePatient(patient, isNew)
                 },
-                Modifier.fillMaxWidth().height(56.dp),
-                enabled = !isLoading,
-                colors = ButtonDefaults.buttonColors(Color(0xFF1976D2))
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                enabled  = !isLoading,
+                colors   = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(Modifier.size(24.dp), color = Color.White)

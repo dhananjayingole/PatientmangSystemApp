@@ -18,18 +18,20 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import eu.tutorials.patientmanagementapp.Model.Appointment
+import eu.tutorials.patientmanagementapp.Navigation.Routes
 import eu.tutorials.patientmanagementapp.viewmodels.AdminViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminAppointmentsScreen(
     navController: NavController,
-    adminViewModel: AdminViewModel = viewModel()
+    adminViewModel: AdminViewModel
 ) {
-    val context = LocalContext.current
+    val context      = LocalContext.current
     val appointments by adminViewModel.appointments.collectAsState()
-    val isLoading by adminViewModel.isLoading.collectAsState()
-    val toast by adminViewModel.toastMessage.collectAsState()
+    val patients     by adminViewModel.patients.collectAsState()
+    val isLoading    by adminViewModel.isLoading.collectAsState()
+    val toast        by adminViewModel.toastMessage.collectAsState()
 
     var filterStatus by remember { mutableStateOf("all") }
     val filters = listOf("all", "pending", "confirmed", "completed", "cancelled")
@@ -54,8 +56,8 @@ fun AdminAppointmentsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF1976D2),
-                    titleContentColor = Color.White,
+                    containerColor             = Color(0xFF1976D2),
+                    titleContentColor          = Color.White,
                     navigationIconContentColor = Color.White
                 )
             )
@@ -63,39 +65,37 @@ fun AdminAppointmentsScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
 
-            // Summary row
+            // ── Summary row ──────────────────────────────────────────────────
             val todayStr = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
                 .format(java.util.Date())
-            val todayCount = appointments.count { it.date == todayStr }
+            val todayCount   = appointments.count { it.date == todayStr }
             val pendingCount = appointments.count { it.status == "pending" }
 
-            if (todayCount > 0 || pendingCount > 0) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    SummaryChip("Today: $todayCount", Color(0xFF9C27B0), Modifier.weight(1f))
-                    SummaryChip("Pending: $pendingCount", Color(0xFFFFC107), Modifier.weight(1f))
-                    SummaryChip("Total: ${appointments.size}", Color(0xFF2196F3), Modifier.weight(1f))
-                }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                SummaryChip("Today: $todayCount",          Color(0xFF9C27B0), Modifier.weight(1f))
+                SummaryChip("Pending: $pendingCount",      Color(0xFFFFC107), Modifier.weight(1f))
+                SummaryChip("Total: ${appointments.size}", Color(0xFF2196F3), Modifier.weight(1f))
             }
 
-            // Filter tabs
+            // ── Filter tabs ──────────────────────────────────────────────────
             ScrollableTabRow(
                 selectedTabIndex = filters.indexOf(filterStatus),
-                edgePadding = 16.dp,
-                containerColor = Color.White,
-                contentColor = Color(0xFF1976D2)
+                edgePadding      = 16.dp,
+                containerColor   = Color.White,
+                contentColor     = Color(0xFF1976D2)
             ) {
                 filters.forEach { f ->
                     Tab(
                         selected = filterStatus == f,
-                        onClick = { filterStatus = f },
-                        text = {
+                        onClick  = { filterStatus = f },
+                        text     = {
                             Text(
-                                text = f.replaceFirstChar { it.uppercase() },
+                                text       = f.replaceFirstChar { it.uppercase() },
                                 fontWeight = if (filterStatus == f) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 13.sp
+                                fontSize   = 13.sp
                             )
                         }
                     )
@@ -118,14 +118,27 @@ fun AdminAppointmentsScreen(
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding      = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filtered) { appt ->
+                        val alreadyPatient = patients.any { it.userId == appt.userId }
+
                         AppointmentAdminCard(
-                            appointment = appt,
+                            appointment    = appt,
+                            alreadyPatient = alreadyPatient,
                             onStatusUpdate = { status, notes ->
                                 adminViewModel.updateAppointmentStatus(appt.id, status, notes)
+                            },
+                            // Uses Routes.adminAddPatientFromAppointment() which matches
+                            // ADMIN_ADD_PATIENT_FROM_APPT route in your existing Routes.kt
+                            onAddAsPatient = {
+                                navController.navigate(
+                                    Routes.adminAddPatientFromAppointment(
+                                        userName = appt.userName,
+                                        userId   = appt.userId
+                                    )
+                                )
                             }
                         )
                     }
@@ -135,51 +148,43 @@ fun AdminAppointmentsScreen(
     }
 }
 
-@Composable
-fun SummaryChip(text: String, color: Color, modifier: Modifier = Modifier) {
-    Card(modifier, colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f))) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = color
-        )
-    }
-}
+// ── Appointment card ──────────────────────────────────────────────────────────
 
 @Composable
 fun AppointmentAdminCard(
-    appointment: Appointment,
-    onStatusUpdate: (String, String) -> Unit
+    appointment    : Appointment,
+    alreadyPatient : Boolean,
+    onStatusUpdate : (String, String) -> Unit,
+    onAddAsPatient : () -> Unit
 ) {
     var showNoteDialog by remember { mutableStateOf(false) }
-    var pendingStatus by remember { mutableStateOf("") }
-    var noteText by remember { mutableStateOf("") }
+    var pendingStatus  by remember { mutableStateOf("") }
+    var noteText       by remember { mutableStateOf("") }
 
     val statusColor = when (appointment.status) {
-        "pending" -> Color(0xFFFFC107)
+        "pending"   -> Color(0xFFFFC107)
         "confirmed" -> Color(0xFF4CAF50)
         "completed" -> Color(0xFF2196F3)
         "cancelled" -> Color.Red
-        else -> Color.Gray
+        else        -> Color.Gray
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = MaterialTheme.shapes.medium,
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
-            // Header
+
+            // ── Header ────────────────────────────────────────────────────────
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment     = Alignment.Top
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(appointment.userName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(appointment.doctorName, fontSize = 13.sp, color = Color(0xFF1976D2))
+                    Text(appointment.userName,        fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(appointment.doctorName,      fontSize = 13.sp, color = Color(0xFF1976D2))
                     Text(appointment.doctorSpecialty, fontSize = 12.sp, color = Color.Gray)
                 }
                 Surface(
@@ -187,11 +192,9 @@ fun AppointmentAdminCard(
                     color = statusColor.copy(alpha = 0.15f)
                 ) {
                     Text(
-                        text = appointment.status.uppercase(),
+                        text     = appointment.status.uppercase(),
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = statusColor
+                        fontSize = 10.sp, fontWeight = FontWeight.Bold, color = statusColor
                     )
                 }
             }
@@ -200,11 +203,14 @@ fun AppointmentAdminCard(
             HorizontalDivider()
             Spacer(Modifier.height(10.dp))
 
-            // Date/time
+            // ── Date / Time ───────────────────────────────────────────────────
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.CalendarToday, null, Modifier.size(16.dp), tint = Color(0xFF1976D2))
                 Spacer(Modifier.width(6.dp))
-                Text("${appointment.date}  •  ${appointment.time}", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    "${appointment.date}  •  ${appointment.time}",
+                    fontSize = 13.sp, fontWeight = FontWeight.Medium
+                )
             }
 
             if (appointment.reason.isNotEmpty()) {
@@ -225,26 +231,26 @@ fun AppointmentAdminCard(
                 }
             }
 
-            // Action buttons
+            // ── Status action buttons ─────────────────────────────────────────
             if (appointment.status != "completed" && appointment.status != "cancelled") {
                 Spacer(Modifier.height(12.dp))
                 when (appointment.status) {
                     "pending" -> {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = { pendingStatus = "confirmed"; showNoteDialog = true },
+                                onClick  = { pendingStatus = "confirmed"; showNoteDialog = true },
                                 modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                                colors   = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
                             ) {
                                 Icon(Icons.Default.Check, null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text("Confirm", fontSize = 13.sp)
                             }
                             OutlinedButton(
-                                onClick = { onStatusUpdate("cancelled", "") },
+                                onClick  = { onStatusUpdate("cancelled", "") },
                                 modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.Red)
+                                colors   = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                                border   = androidx.compose.foundation.BorderStroke(1.dp, Color.Red)
                             ) {
                                 Icon(Icons.Default.Close, null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
@@ -254,9 +260,9 @@ fun AppointmentAdminCard(
                     }
                     "confirmed" -> {
                         Button(
-                            onClick = { pendingStatus = "completed"; showNoteDialog = true },
+                            onClick  = { pendingStatus = "completed"; showNoteDialog = true },
                             modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
+                            colors   = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
                         ) {
                             Icon(Icons.Default.Done, null, Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
@@ -265,24 +271,60 @@ fun AppointmentAdminCard(
                     }
                 }
             }
+
+            // ── "Add as Patient" button ───────────────────────────────────────
+            // Shown on confirmed/completed appointments. Doctor taps this when
+            // patient arrives at clinic — name and userId pre-fill automatically.
+            if ((appointment.status == "confirmed" || appointment.status == "completed") &&
+                appointment.userId.isNotEmpty()
+            ) {
+                Spacer(Modifier.height(8.dp))
+                if (alreadyPatient) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.CheckCircle, null,
+                            tint     = Color(0xFF4CAF50),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Already registered as patient",
+                            fontSize   = 12.sp,
+                            color      = Color(0xFF4CAF50),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick  = onAddAsPatient,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors   = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1976D2)),
+                        border   = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1976D2))
+                    ) {
+                        Icon(Icons.Default.PersonAdd, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add as Patient", fontSize = 13.sp)
+                    }
+                }
+            }
         }
     }
 
-    // Note dialog
+    // ── Note dialog ───────────────────────────────────────────────────────────
     if (showNoteDialog) {
         AlertDialog(
             onDismissRequest = { showNoteDialog = false },
-            title = { Text(if (pendingStatus == "confirmed") "Confirm Appointment" else "Mark as Completed") },
-            text = {
+            title  = { Text(if (pendingStatus == "confirmed") "Confirm Appointment" else "Mark as Completed") },
+            text   = {
                 Column {
                     Text("Add a doctor's note (optional):", fontSize = 13.sp, color = Color.Gray)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = noteText,
+                        value         = noteText,
                         onValueChange = { noteText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("e.g. Bring previous reports, fast for 4 hours...") },
-                        minLines = 3
+                        modifier      = Modifier.fillMaxWidth(),
+                        placeholder   = { Text("e.g. Bring previous reports, fast for 4 hours…") },
+                        minLines      = 3
                     )
                 }
             },
@@ -301,6 +343,19 @@ fun AppointmentAdminCard(
             dismissButton = {
                 TextButton(onClick = { showNoteDialog = false }) { Text("Cancel") }
             }
+        )
+    }
+}
+
+@Composable
+fun SummaryChip(text: String, color: Color, modifier: Modifier = Modifier) {
+    Card(modifier, colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f))) {
+        Text(
+            text       = text,
+            modifier   = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            fontSize   = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color      = color
         )
     }
 }

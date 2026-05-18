@@ -27,7 +27,7 @@ fun AdminAddEditPrescriptionScreen(
     navController: NavController,
     prescriptionId: String,
     patientId: String,
-    adminViewModel: AdminViewModel = viewModel()
+    adminViewModel: AdminViewModel
 ) {
     val context = LocalContext.current
     val isNew = prescriptionId == "new"
