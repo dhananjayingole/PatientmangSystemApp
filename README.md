@@ -2,14 +2,6 @@
 
 A full-featured healthcare management Android application built with **Jetpack Compose**, **Firebase Realtime Database**, and **Firebase Authentication**. The app supports two roles — **Admin (Doctor/Staff)** and **Patient (User)** — with real-time data sync, appointment booking, prescription management, and emergency SOS alerts.
 
----
-
-## 📱 Screenshots
-
-> Add your screenshots here after building the app.
-
----
-
 ## ✨ Features
 
 ### 👨‍⚕️ Admin Panel
