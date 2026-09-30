@@ -1,4 +1,4 @@
-> ### 📱 [▶️ See the App in Action (Demo)](https://drive.google.com/file/d/1FD5v3JrzRgB1Q8xUgVjB8FIq0TZilRNE/view?usp=sharing)
+[![Watch Demo](https://img.shields.io/badge/▶️_Watch_Demo-Google_Drive-4285F4?style=for-the-badge&logo=googledrive&logoColor=white)](https://drive.google.com/file/d/1FD5v3JrzRgB1Q8xUgVjB8FIq0TZilRNE/view?usp=sharing)
 
 # 🏥 Patient Management System — Android App
 A full-featured healthcare management Android application built with **Jetpack Compose**, **Firebase Realtime Database**, and **Firebase Authentication**. The app supports two roles — **Admin (Doctor/Staff)** and **Patient (User)** — with real-time data sync, appointment booking, prescription management, and emergency SOS alerts.
